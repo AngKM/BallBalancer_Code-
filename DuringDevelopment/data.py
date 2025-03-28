@@ -4,7 +4,10 @@ import json
 data = {
     "errorX": 0,
     "errorY": 0,
-}
+    "CenterBaseX": None,
+    "CenterBaseY": None
+    }
+data["errorX"] = 12
 
 # Open the file in write mode and write the data
 with open("data.json", "w") as file:

@@ -9,8 +9,14 @@ import json
 mode = "video"      # Change to "photo" or "camera" as needed.
 data_folder = os.path.join(os.getcwd(), "TestData")
 photo_name = "Ball1.png"     # Used if mode=="photo"  
-video_name = "BallVid1.mp4" # Used if mode=="video"
+video_name = "BallVid1.mp4"    # Used if mode=="video"
 correct_ball = 17  # Index for the "correct ball" (if applicable)
+data = {
+    "errorX": 0,
+    "errorY": 0,
+    "CenterBaseX": 474,  # default value; change as needed
+    "CenterBaseY": 314,
+}
 
 # ---------------------------
 # Helper Functions: Detection routines for red base and ball
@@ -55,7 +61,7 @@ def detect_ball(frame):
     )
     if circles is not None:
         circles = np.uint16(np.around(circles))
-        # Return first circle and all circles
+        # Return first circle and all circles.
         x_center, y_center, radius = circles[0][0]
         return (int(x_center), int(y_center), int(radius)), circles
     return None, None
@@ -88,15 +94,14 @@ def annotate_frame(frame, base_center, ball_data, circles=None):
     if base_center is not None and ball_data is not None:
         errorX = ball_data[0] - base_center[0]
         errorY = ball_data[1] - base_center[1]
-        data = {
-            "errorX": errorX,
-            "errorY": errorY,
-            }
+        data["errorX"] = errorX
+        data["errorY"] = errorY
+        # Write to JSON file.
         try:
             with open("data.json", "w") as file:
-                json.dump(data, file, indent=4)  # 'indent=4' makes the file more readable
+                json.dump(data, file, indent=4)
         except Exception as e:
-            print(f"Error Accesing Data Transferring File: {e}")
+            print(f"Error accessing JSON file: {e}")
     return annotated
 
 # ---------------------------
@@ -110,6 +115,16 @@ if mode == "photo":
         print("Failed to load photo:", img_path)
         exit()
     base_center = detect_red_base(frame)
+    if base_center is not None:
+        data["CenterBaseX"] = base_center[0]
+        data["CenterBaseY"] = base_center[1]
+    else:
+        print("No base detected in photo. Using default base center values.")
+    try:
+        with open("data.json", "w") as file:
+            json.dump(data, file, indent=4)
+    except Exception as e:
+        print(f"Error accessing JSON file: {e}")
     ball_data, circles_found = detect_ball(frame)
     annotated_frame = annotate_frame(frame, base_center, ball_data, circles_found)
     cv2.imshow("Photo - Detection", annotated_frame)
@@ -130,7 +145,7 @@ elif mode == "video" or mode == "camera":
     current_frame = 0
 
     # If using a video file, try to get total frames.
-    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) if mode=="video" else None
+    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) if mode == "video" else None
 
     while True:
         if not paused:
@@ -142,7 +157,6 @@ elif mode == "video" or mode == "camera":
         else:
             # If paused, waitKey with no frame read.
             key = cv2.waitKey(0) & 0xFF
-            # Handle paused key events below.
             if key == ord('n'):  # next frame
                 ret, frame = cap.read()
                 if ret:
@@ -166,6 +180,16 @@ elif mode == "video" or mode == "camera":
 
         # Process detection on the frame.
         base_center = detect_red_base(frame)
+        if base_center is not None:
+            data["CenterBaseX"] = base_center[0]
+            data["CenterBaseY"] = base_center[1]
+        else:
+            print("No base detected in current frame. Retaining previous base center values.")
+        try:
+            with open("data.json", "w") as file:
+                json.dump(data, file, indent=4)
+        except Exception as e:
+            print(f"Error accessing JSON file: {e}")
         ball_data, circles_found = detect_ball(frame)
         annotated_frame = annotate_frame(frame, base_center, ball_data, circles_found)
 
