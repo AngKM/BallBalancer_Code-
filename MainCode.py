@@ -1,13 +1,14 @@
 import cv2
 import numpy as np
 import os
+import json
 
 # ---------------------------
 # SETTINGS: Choose input mode: "photo", "video", or "camera"
 # ---------------------------
-mode = "photo"      # Change to "photo" or "camera" as needed.
+mode = "video"      # Change to "photo" or "camera" as needed.
 data_folder = os.path.join(os.getcwd(), "TestData")
-photo_name = "Ball2.png"     # Used if mode=="photo"  
+photo_name = "Ball1.png"     # Used if mode=="photo"  
 video_name = "BallVid1.mp4" # Used if mode=="video"
 correct_ball = 17  # Index for the "correct ball" (if applicable)
 
@@ -87,8 +88,15 @@ def annotate_frame(frame, base_center, ball_data, circles=None):
     if base_center is not None and ball_data is not None:
         errorX = ball_data[0] - base_center[0]
         errorY = ball_data[1] - base_center[1]
-        cv2.putText(annotated, f"Err: ({errorX},{errorY})", (50, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        data = {
+            "errorX": errorX,
+            "errorY": errorY,
+            }
+        try:
+            with open("data.json", "w") as file:
+                json.dump(data, file, indent=4)  # 'indent=4' makes the file more readable
+        except Exception as e:
+            print(f"Error Accesing Data Transferring File: {e}")
     return annotated
 
 # ---------------------------
