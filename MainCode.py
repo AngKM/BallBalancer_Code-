@@ -20,11 +20,14 @@ data = {
     "CenterBaseY": 314,
 }
 
+# Global variable to hold last known ball detection
+prev_ball = None
+
 # ---------------------------
 # Helper Functions
 # ---------------------------
 def detect_red_base(frame):
-    """Detect the red (or pinkish-red) base in the frame and return its center (x, y) if found."""
+    """Detect the red (or pinkish-red) base in the frame and return its center (x, y) and contour if found."""
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
     # Adjust these HSV thresholds to match your pinkish/red base
@@ -51,8 +54,8 @@ def detect_red_base(frame):
         if M["m00"] != 0:
             base_cx = int(M["m10"] / M["m00"])
             base_cy = int(M["m01"] / M["m00"])
-            return (base_cx, base_cy)
-    return None
+            return (base_cx, base_cy), base_contour
+    return None, None
 
 def detect_ball(frame):
     """
@@ -66,9 +69,9 @@ def detect_ball(frame):
     circles = cv2.HoughCircles(
         gray_blurred,
         cv2.HOUGH_GRADIENT,
-        dp=1.2,
+        dp=1.5,
         minDist=20,
-        param1=80,
+        param1=100,
         param2=30,
         minRadius=18,
         maxRadius=30
@@ -80,20 +83,44 @@ def detect_ball(frame):
         return (int(x_center), int(y_center), int(radius)), circles
     return None, None
 
-def annotate_frame(frame, base_center, ball_data, circles=None):
+def detect_ball_roi(frame, roi_center, roi_size=50):
+    """
+    Detect the ball within a region of interest (ROI) around the roi_center.
+    roi_size defines half the width and height of the ROI square.
+    """
+    x, y = roi_center
+    x1 = max(0, x - roi_size)
+    y1 = max(0, y - roi_size)
+    x2 = min(frame.shape[1], x + roi_size)
+    y2 = min(frame.shape[0], y + roi_size)
+    
+    roi = frame[y1:y2, x1:x2]
+    ball_data, circles = detect_ball(roi)
+    if ball_data is not None:
+        # Adjust the detected coordinates to the original frame's coordinates
+        ball_data = (ball_data[0] + x1, ball_data[1] + y1, ball_data[2])
+        # Adjust circle coordinates if needed
+        if circles is not None:
+            circles[0][:, 0] += x1
+            circles[0][:, 1] += y1
+    return ball_data, circles
+
+def annotate_frame(frame, base_center, base_contour, ball_data, circles=None):
     """
     Annotate frame with detected base, ball, and optionally label all circles.
     Also updates JSON data with errorX, errorY if both base and ball are found.
     """
     annotated = frame.copy()
 
-    # Draw base
+    # Draw base center and contour if available
     if base_center is not None:
         cv2.circle(annotated, base_center, 5, (0, 255, 0), -1)
         cv2.putText(annotated, "Base", (base_center[0] - 30, base_center[1] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    if base_contour is not None:
+        cv2.drawContours(annotated, [base_contour], -1, (0, 255, 0), 2)
 
-    # Draw ball
+    # Draw ball if valid
     if ball_data is not None:
         (bx, by), radius = (ball_data[0], ball_data[1]), ball_data[2]
         cv2.circle(annotated, (bx, by), radius, (255, 0, 0), 2)
@@ -148,7 +175,7 @@ if mode == "photo":
         print("Failed to load photo:", img_path)
         exit()
 
-    base_center = detect_red_base(frame)
+    base_center, base_contour = detect_red_base(frame)
     if base_center is not None:
         data["CenterBaseX"] = base_center[0]
         data["CenterBaseY"] = base_center[1]
@@ -163,7 +190,14 @@ if mode == "photo":
         print(f"Error accessing JSON file: {e}")
 
     ball_data, circles_found = detect_ball(frame)
-    annotated_frame = annotate_frame(frame, base_center, ball_data, circles_found)
+    # Only accept the ball if its center is inside the red base contour
+    if ball_data is not None and base_contour is not None:
+        inside = cv2.pointPolygonTest(base_contour, (ball_data[0], ball_data[1]), False)
+        if inside < 0:
+            ball_data = None
+            circles_found = None
+
+    annotated_frame = annotate_frame(frame, base_center, base_contour, ball_data, circles_found)
 
     cv2.imshow("Photo - Detection", annotated_frame)
     cv2.waitKey(0)
@@ -217,7 +251,7 @@ elif mode == "video" or mode == "camera":
                 break
 
         # Detect base and ball
-        base_center = detect_red_base(frame)
+        base_center, base_contour = detect_red_base(frame)
         if base_center is not None:
             data["CenterBaseX"] = base_center[0]
             data["CenterBaseY"] = base_center[1]
@@ -231,8 +265,24 @@ elif mode == "video" or mode == "camera":
         except Exception as e:
             print(f"Error accessing JSON file: {e}")
 
+        # Full frame ball detection
         ball_data, circles_found = detect_ball(frame)
-        annotated_frame = annotate_frame(frame, base_center, ball_data, circles_found)
+        # If not found and we have a previous ball, try ROI detection
+        if ball_data is None and prev_ball is not None:
+            ball_data, circles_found = detect_ball_roi(frame, (prev_ball[0], prev_ball[1]), roi_size=50)
+
+        # Only accept the ball if its center is inside the red base contour
+        if ball_data is not None and base_contour is not None:
+            inside = cv2.pointPolygonTest(base_contour, (ball_data[0], ball_data[1]), False)
+            if inside < 0:
+                ball_data = None
+                circles_found = None
+
+        # Update previous ball if detected
+        if ball_data is not None:
+            prev_ball = (ball_data[0], ball_data[1])
+
+        annotated_frame = annotate_frame(frame, base_center, base_contour, ball_data, circles_found)
 
         # Show annotated frame with overlaid text for ball location & distance
         cv2.imshow("Ball Balancing - Detection", annotated_frame)
